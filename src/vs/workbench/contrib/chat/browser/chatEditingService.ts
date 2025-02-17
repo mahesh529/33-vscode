@@ -179,6 +179,12 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 	killCurrentEditingSession() {
 		const currentSession = this._currentSessionObs.get();
 		if (currentSession) {
+			// Close any open editors associated with this session
+			const groupedEditors = this._findGroupedEditors();
+			for (const [group, editor] of groupedEditors) {
+				group.closeEditor(editor);
+			}
+
 			this._onDidDisposeEditingSession.fire(currentSession);
 			currentSession.dispose();
 			this._currentSessionObs.set(null, undefined);
@@ -578,6 +584,12 @@ class ChatEditingSession extends Disposable implements IChatEditingSession {
 	}
 
 	override dispose() {
+		if (this.editorPane) {
+			const input = this.editorPane.input;
+			if (input) {
+				input.dispose();
+			}
+		}
 		super.dispose();
 		this._onDidDispose.fire();
 	}
