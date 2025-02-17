@@ -39,16 +39,21 @@ import { IChatService } from '../common/chatService.js';
 import { IChatVariablesService } from '../common/chatVariables.js';
 import { CHAT_CATEGORY } from './actions/chatActions.js';
 import { IChatWidgetService, showChatView } from './chat.js';
+import { DisposableStore, IDisposable } from 'vs/base/common/lifecycle';
+import { ChatInputPart } from 'vs/workbench/contrib/chat/browser/chatInputPart';
+import { IChatEditorOptions } from 'vs/workbench/contrib/chat/browser/chatEditor';
 
 const decidedChatEditingResourceContextKey = new RawContextKey<string[]>('decidedChatEditingResource', []);
 const chatEditingResourceContextKey = new RawContextKey<string | undefined>('chatEditingResource', undefined);
 const inChatEditingSessionContextKey = new RawContextKey<boolean | undefined>('inChatEditingSession', undefined);
 
-export class ChatEditingService extends Disposable implements IChatEditingService {
+export class ChatEditingService extends Disposable implements IChatEditingService, IDisposable {
 
 	_serviceBrand: undefined;
 
 	private readonly _currentSessionObs = observableValue<ChatEditingSession | null>(this, null);
+	private readonly disposables = new DisposableStore();
+	private activeEditingSessions = new Map<string, DisposableStore>();
 
 	get currentEditingSession(): IChatEditingSession | null {
 		return this._currentSessionObs.get();
@@ -90,6 +95,11 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 				this.killCurrentEditingSession();
 			}
 		});
+
+		// Listen for chat session disposal
+		this.disposables.add(this._chatService.onDidDisposeSession(sessionId => {
+			this.closeEditorsForSession(sessionId);
+		}));
 	}
 
 	async startOrContinueEditingSession(chatSessionId: string, builder?: (stream: IChatEditingSessionStream) => Promise<void>, options?: { silent: boolean }): Promise<void> {
@@ -195,6 +205,39 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 			}
 		}
 		return editors;
+	}
+
+	private closeEditorsForSession(sessionId: string): void {
+		// Close all editors associated with this chat session
+		const editors = this._editorGroupsService.groups.flatMap(group =>
+			group.editors.filter(editor => {
+				const input = editor.resource;
+				// Check if this editor is associated with the chat session
+				return input?.scheme === 'chat-editor' &&
+					input.path.includes(sessionId);
+			})
+		);
+
+		// Close each editor
+		editors.forEach(editor => {
+			this._editorGroupsService.getGroup(editor.groupId)?.closeEditor(editor);
+		});
+
+		// Clean up the editing session
+		const sessionDisposables = this.activeEditingSessions.get(sessionId);
+		if (sessionDisposables) {
+			sessionDisposables.dispose();
+			this.activeEditingSessions.delete(sessionId);
+		}
+	}
+
+	dispose(): void {
+		this.disposables.dispose();
+		// Clean up all active editing sessions
+		for (const [sessionId, disposables] of this.activeEditingSessions) {
+			this.closeEditorsForSession(sessionId);
+		}
+		this.activeEditingSessions.clear();
 	}
 }
 
