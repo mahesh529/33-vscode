@@ -20,6 +20,9 @@ export interface IChatEditingService {
 	readonly currentEditingSession: IChatEditingSession | null;
 
 	startOrContinueEditingSession(chatSessionId: string, builder?: (stream: IChatEditingSessionStream) => Promise<void>, options?: { silent?: boolean }): Promise<void>;
+
+	killCurrentEditingSession(sessionId: string): void;
+	dispose(): void;
 }
 
 export interface IChatEditingSession {
